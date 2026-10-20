@@ -6,7 +6,7 @@ import time
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="Whale Tracker", page_icon="🐋", layout="wide")
 
-# Скрываем стандартный хедер Streamlit для чистоты вида
+# Скрываем стандартный хедер Streamlit
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -27,9 +27,9 @@ col1, col2 = st.columns([3, 1])
 with col1:
     st.title("🐋 ПЕРЕВОДЫ")
 with col2:
-    st.metric(label="Всего записей", value="715")  # Можно заменить на реальное кол-во
+    # Можно позже заменить на реальный подсчет
+    st.metric(label="Всего записей", value="...")
 
-# Фильтры как в примере
 f_col1, f_col2, f_col3 = st.columns([1, 1, 1])
 with f_col1:
     direction_filter = st.selectbox("Направление", ["ВСЕ", "ПРИТОК", "ОТТОК"])
@@ -43,14 +43,15 @@ with f_col3:
 # --- ЗАГРУЗКА ДАННЫХ ---
 @st.cache_data(ttl=30)
 def load_whales():
-    response = supabase.table("whale_transactions").select("*").order("created_at", desc=True).execute()
+    # Используем 'timestamp' вместо 'created_at'
+    response = supabase.table("whale_transactions").select("*").order("timestamp", desc=True).limit(100).execute()
     return pd.DataFrame(response.data)
 
 
 df = load_whales()
 
 if not df.empty:
-    df['created_at'] = pd.to_datetime(df['created_at'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
 
     # Фильтрация
     if direction_filter == "ПРИТОК":
@@ -63,14 +64,12 @@ if not df.empty:
 
     # --- ФОРМАТИРОВАНИЕ ТАБЛИЦЫ ---
     def format_row(row):
-        # Имитация стиля Arkham
         direction_badge = f"<span style='color: {'#00ff00' if row['direction'] == 'IN' else '#ff4d4d'}; font-weight: bold;'>{'▼ ПРИТОК' if row['direction'] == 'IN' else '▲ ОТТОК'}</span>"
-
-        # Обрезаем адрес кошелька для красоты
         short_addr = f"{row['wallet_address'][:6]}...{row['wallet_address'][-4:]}"
+        time_str = row['timestamp'].strftime('%H:%M')
 
         return {
-            "Время": row['created_at'].strftime('%H:%M'),
+            "Время": time_str,
             "Направление": direction_badge,
             "Кошелек": short_addr,
             "BTC": f"{row['amount_crypto']:,.4f}",
@@ -82,7 +81,7 @@ if not df.empty:
     styled_data = df.apply(format_row, axis=1).tolist()
     display_df = pd.DataFrame(styled_data)
 
-    # --- ОТРИСОВКА ТАБЛИЦЫ ---
+    # --- ОТРИСОВКА ---
     st.markdown("""
     <style>
     .dataframe th {background-color: #1a1a1a; color: #888; font-size: 12px;}
@@ -106,6 +105,6 @@ if not df.empty:
 else:
     st.warning("Нет транзакций, соответствующих фильтру.")
 
-# Автообновление каждые 60 секунд
+# Автообновление
 time.sleep(60)
 st.rerun()
