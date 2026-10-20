@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: whale-tracker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: SUPABASE_URL
+        value: https://bbzynftosxppxxsnlozo.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: sb_publishable_4dpzEKOxERFrNDU-hgqeiQ_GvAKtTcd
