@@ -1,20 +1,41 @@
 import json
 import time
 import requests
+import os
+import threading
 from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # === ХАРДКОД ДЛЯ ТЕСТА (НЕ ИСПОЛЬЗОВАТЬ В ПРОДЕ!) ===
 SUPABASE_URL = "https://bbzynftosxppxxsnlozo.supabase.co"
 SUPABASE_KEY = "sb_publishable_4dpzEKOxERFrNDU-hgqeiQ_GvAKtTcd"
 
-MIN_USD_AMOUNT = 50_000_000    # $50 млн
-MIN_BTC_AMOUNT = 500           # 500 BTC
+MIN_USD_AMOUNT = 50_000_000  # $50 млн
+MIN_BTC_AMOUNT = 500  # 500 BTC
 STATE_FILE = Path("tracker_state.json")
-SCAN_INTERVAL = 30             # Секунды между циклами
+SCAN_INTERVAL = 30  # Секунды между циклами
 REQUEST_TIMEOUT = 10
 
+# Указываем Render использовать порт 8080
+os.environ["PORT"] = "8080"
 
-# === СОСТОЯНИЕ (чтобы не сканировать историю заново) ===
+
+# === HEALTH CHECK СЕРВЕР (Чтобы Render не убивал процесс) ===
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Whale Tracker is running!")
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"🌐 Health check server started on port {port}")
+    server.serve_forever()
+
+
+# === СОСТОЯНИЕ ===
 def load_state() -> dict:
     if STATE_FILE.exists():
         try:
@@ -22,6 +43,7 @@ def load_state() -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
+
 
 def save_state(state: dict):
     tmp = STATE_FILE.with_suffix(".tmp")
@@ -41,6 +63,7 @@ def get_btc_price() -> float:
         print(f"⚠️ Ошибка курса: {e}. Дефолт $65,000")
         return 65000.0
 
+
 def get_monitored_wallets() -> list[dict]:
     headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
     url = f"{SUPABASE_URL}/rest/v1/exchange_wallets?blockchain=eq.BTC&select=address,label"
@@ -54,8 +77,8 @@ def get_monitored_wallets() -> list[dict]:
         print(f"❌ Ошибка загрузки кошельков: {e}")
         return []
 
+
 def save_whale_transaction(tx_data: dict) -> bool:
-    """Сохраняет транзакцию. Дубликаты игнорируются благодаря UNIQUE + Prefer header."""
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -73,7 +96,8 @@ def save_whale_transaction(tx_data: dict) -> bool:
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
         if res.status_code == 201:
-            print(f"💾 Кит сохранен: {payload['direction']} {payload['amount_crypto']:.4f} BTC (${payload['amount_usd']:,.0f})")
+            print(
+                f"💾 Кит сохранен: {payload['direction']} {payload['amount_crypto']:.4f} BTC (${payload['amount_usd']:,.0f})")
             return True
         elif res.status_code == 409:
             print(f"ℹ️ Дубликат пропущен: {payload['tx_hash'][:16]}...")
@@ -165,9 +189,11 @@ def scan_wallet(address: str, label: str, btc_price: float, state: dict) -> int:
 
 # === ЗАПУСК ===
 def main():
-    print("🐋 Whale Tracker v2.0 (TEST MODE)")
+    # Запускаем веб-сервер в отдельном потоке
+    threading.Thread(target=start_health_server, daemon=True).start()
+
+    print("🐋 Whale Tracker v2.0 (Render Mode)")
     print(f"🎯 Порог: ${MIN_USD_AMOUNT:,} или {MIN_BTC_AMOUNT} BTC")
-    print(f"🔄 Интервал: {SCAN_INTERVAL}с\n")
 
     state = load_state()
 
@@ -186,7 +212,6 @@ def main():
 
         elapsed = time.time() - cycle_start
         print(f"✅ Цикл за {elapsed:.1f}с | Новых китов: {total_new}")
-        print(f"💤 Следующий цикл через {SCAN_INTERVAL}с...\n")
         time.sleep(SCAN_INTERVAL)
 
 
